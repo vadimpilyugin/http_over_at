@@ -4,11 +4,17 @@ import (
   "github.com/jacobsa/go-serial/serial"
   "github.com/vadimpilyugin/debug_print_go"
   "io"
+  "os"
 )
 
 func reader(ch chan []byte, port io.ReadWriteCloser, forever bool) {
+  file, err := os.OpenFile("req", os.O_WRONLY|os.O_CREATE, 0544)
+  if err != nil {
+    printer.Fatal(err, "Could not open req file")
+  }
+  defer file.Close()
   for {
-    buf := make([]byte, 32)
+    buf := make([]byte, 1234)
     n, err := port.Read(buf)
     if err != nil {
       if err != io.EOF {
@@ -18,8 +24,11 @@ func reader(ch chan []byte, port io.ReadWriteCloser, forever bool) {
       buf = buf[:n]
       // printer.Debug(hex.EncodeToString(buf), "Rx")
       printer.Debug(buf, "Read data")
+      file.Write(buf)
+      file.Sync()
       if !forever {
         ch <- buf
+        return
       }
       buf = buf[:0]
     }
@@ -49,7 +58,7 @@ func main() {
   defer port.Close()
 
   // Write n bytes to the port.
-  b := []byte("AT+CHTTPACT=\"mobile-review.com\",80\r")
+  b := []byte("AT+CHTTPACT=\"openplatform.website\",8080\r")
   // b := []byte("AT+CREG\r")
   n, err := port.Write(b)
   if err != nil {

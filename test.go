@@ -6,8 +6,10 @@ import (
 	"io"
 	"os"
 	"time"
-	"bufio"
-	"strings"
+	"fmt"
+	// "bufio"
+	// "strings"
+	"strconv"
 )
 
 const (
@@ -21,13 +23,19 @@ const (
 	FIN_R
 	COMMA_SEP_SPACE
 	COMMA_SEP
+	READ_DATA
+	REQUEST_HEADERS = "GET / HTTP/1.1\r\nHost: mobile-review.com\r\nUser-Agent: Foobar agent\r\nContent-Length: 0\r\n\r\n"
 )
 
 type CommandResponse struct {
 	Name string
 	Params []string
 	Data []byte
+	Status string
 }
+
+var commands chan string
+var responses chan *CommandResponse
 
 func openPort() io.ReadWriteCloser {
 	// Set up options.
@@ -97,8 +105,11 @@ func commandParser(ch chan []byte, quit chan bool, responses chan *CommandRespon
 	state := NO_COMMAND
 	var buf []byte
 	var command []byte
+	var status []byte
 	var param []byte
 	var cmdresp *CommandResponse
+	dataRead := 0
+	dataAvail := 0
 	for {
 		select {
 			case buf = <-ch:
@@ -114,6 +125,7 @@ func commandParser(ch chan []byte, quit chan bool, responses chan *CommandRespon
 					case FIRST_R:
 						// printer.Debug("FIRST_R","State")
 						if c == '\n' {
+							cmdresp = &CommandResponse{}
 							state = RESPONSE
 							// printer.Note("RESPONSE", "Change state")
 						} else {
@@ -128,35 +140,37 @@ func commandParser(ch chan []byte, quit chan bool, responses chan *CommandRespon
 							state = COMMAND_RESPONSE
 							// printer.Note("COMMAND_RESPONSE", "Change state")
 						} else {
+							status = command
+							command = command[:0]
 							state = OK_OR_ERROR
 							// printer.Note("OK_OR_ERROR", "Change state")
 						}
 					case OK_OR_ERROR:
 						// printer.Debug("OK_OR_ERROR","State")
 						if c != '\r' {
-							command = append(command, c)
+							status = append(status, c)
 						} else {
-							commStr := string(command)
-							if commStr != "OK" && commStr != "ERROR" {
-								printer.Fatal(command, "No such command")
+							statusStr := string(status)
+							if statusStr != "OK" && statusStr != "ERROR" {
+								printer.Fatal(statusStr, "No such status")
 							}
-							cmdresp = &CommandResponse{
-								Name: commStr,
-							}
+							cmdresp.Status = statusStr
 							state = FIN_R
 							// printer.Note("FIN_R", "Change state")
 						}
 					case COMMAND_RESPONSE:
 						// printer.Debug("COMMAND_RESPONSE","State")
-						if c != ':' {
-							command = append(command, c)
-						} else {
-							cmdresp = &CommandResponse{
-								Name: string(command),
-							}
+						if c == ' ' {
+							cmdresp.Name = string(command)
+							status = make([]byte, 0)
+							state = OK_OR_ERROR
+						} else if c == ':' {
+							cmdresp.Name = string(command)
 							state = COMMA_SEP_SPACE
 							// printer.Note("COMMA_SEP_SPACE", "Change state")
 							param = make([]byte, 0)
+						} else {
+							command = append(command, c)
 						}
 					case COMMA_SEP_SPACE:
 						// printer.Debug("COMMA_SEP_SPACE","State")
@@ -177,9 +191,30 @@ func commandParser(ch chan []byte, quit chan bool, responses chan *CommandRespon
 						} else {
 							param = append(param, c)
 						}
+					case READ_DATA:
+						if dataRead < dataAvail {
+							cmdresp.Data[dataRead] = c
+							dataRead++
+							dataAvail--
+						} else {
+							responses <- cmdresp
+							state = NO_COMMAND
+						}
 					case FIN_R:
 						// printer.Debug("FIN_R","State")
 						if c == '\n' {
+							// FIXME: fails if there are no Params
+							// if command is CHTTPACT: DATA, then read data
+							if cmdresp.Name == "+CHTTPACT" && len(cmdresp.Params) > 0 && cmdresp.Params[0] == "DATA" {
+								
+								dataRead = 0
+								dataAvail, err := strconv.Atoi(cmdresp.Params[1])
+								if err != nil {
+									printer.Error("Could not convert number of bytes")
+								}
+								cmdresp.Data = make([]byte, dataAvail)
+								state = READ_DATA
+							}
 							state = NO_COMMAND
 							// printer.Note("NO_COMMAND", "Change state")
 							responses <- cmdresp
@@ -233,19 +268,44 @@ func portWriter(commands chan string, port io.ReadWriteCloser) {
 	}
 }
 
-func readUserInput(commands chan string) {
-	for {
-		reader := bufio.NewReader(os.Stdin)
-		command, _ := reader.ReadString('\n')
-		if strings.Contains(command, "#!") {
-			command = strings.Replace(command, "#!", "\x1a", -1)
+// func readUserInput(commands chan string) {
+// 	for {
+		// reader := bufio.NewReader(os.Stdin)
+		// command, _ := reader.ReadString('\n')
+
+		// if strings.Contains(command, "#!") {
+		// 	command = strings.Replace(command, "#!", "\x1a", -1)
 			
-		} else {
-			command = command[:len(command)-1] + "\r"
+		// } else {
+		// 	command = command[:len(command)-1] + "\r"
+		// }
+		// printer.Note(command, "Command")
+		// commands <- command
+
+// 	}
+// }
+
+func HTTPRequest(url string, port string) []byte {
+	command := fmt.Sprintf("AT+CHTTPACT=\"%s\",%s\r", url, port)
+	commands <- command
+	for {
+		resp := <-responses 
+		// FIXME: may fail if 0 params
+		if resp.Name == "+CHTTPACT" && resp.Params[0] == "REQUEST" {
+			commands <- REQUEST_HEADERS + "\x1a"
 		}
-		printer.Note(command, "Command")
-		commands <- command
 	}
+	buf := make([]byte, 0, BUFSIZE)
+	for {
+		resp := <-responses 
+		if resp.Name == "+CHTTPACT" && resp.Params[0] == "DATA" {
+			if resp.Params[1] == "0" {
+				break
+			}
+			buf = append(buf, resp.Data...)
+		}
+	}
+	return buf
 }
 
 func main() {
@@ -253,8 +313,8 @@ func main() {
 	// Read data from port and print it
 	ch := make(chan []byte)
 	quit := make(chan bool)
-	responses := make(chan *CommandResponse)
-	commands := make(chan string)
+	responses = make(chan *CommandResponse)
+	commands = make(chan string)
 
 	port := openPort()
 	defer port.Close()
@@ -263,6 +323,7 @@ func main() {
 	// go fakePortReader(ch, quit)
 	// collectData(ch, quit)
 	go commandParser(ch, quit, responses)
-	go readResponses(responses)
-	readUserInput(commands)
+	// go readResponses(responses)
+	// readUserInput(commands)
+	HTTPRequest("openplatform.website", "8080")
 }
