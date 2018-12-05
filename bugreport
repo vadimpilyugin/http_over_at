@@ -1,0 +1,1 @@
+1. В ответ на 'AT+CHTTPACT="google.com",80' модем отвечает 'CONNECT 115200'. Проблема повторяется и в minicom. Bugfix: посылаем Ctrl-Z в ответ, потом приходит один OK, и только потом CHTTPACT
