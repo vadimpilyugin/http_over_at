@@ -1,4 +1,4 @@
-package main
+package http_over_at
 
 import (
   "net/http"
@@ -8,29 +8,30 @@ import (
   "bytes"
 )
 
-type Promise struct {
+type promise struct {
   Res chan<- []byte
   Err chan<- error
   Request *http.Request
 }
 
 type Requester struct {
-  queue chan Promise
+  queue chan promise
 }
 
-var rqstr *Requester
+var Rqstr *Requester
+
 
 func init() {
   // init requester
-  queue := make(chan Promise)
-  rqstr = &Requester{queue: queue}
-  go rqstr.Dequeue()
+  queue := make(chan promise)
+  Rqstr = &Requester{queue: queue}
+  go Rqstr.dequeue()
 }
 
 
-func (rqstr *Requester) Dequeue () {
+func (Rqstr *Requester) dequeue () {
   const DEFAULT_PORT = "80"
-  for promise := range rqstr.queue {
+  for promise := range Rqstr.queue {
     headers, err := httputil.DumpRequest(promise.Request, false)
     if err != nil {
       printer.Fatal(err)
@@ -66,11 +67,11 @@ func fixResponse(resp []byte) []byte {
   return resp
 }
 
-func (rqstr *Requester) RoundTrip (r *http.Request) (*http.Response, error) {
+func (Rqstr *Requester) RoundTrip (r *http.Request) (*http.Response, error) {
   // send and receive requests
   ch := make(chan []byte)
   e := make(chan error)
-  rqstr.queue <- Promise{Res: ch, Request: r, Err: e}
+  Rqstr.queue <- promise{Res: ch, Request: r, Err: e}
   res := <-ch
   err := <-e
   if err != nil {
@@ -89,39 +90,3 @@ func (rqstr *Requester) RoundTrip (r *http.Request) (*http.Response, error) {
   }
 }
 
-// func makeRequest(url string, port string) {
-//   c := Client{Transport: 
-// }
-
-func main() {
-  bufReader := bufio.NewReader(
-    bytes.NewReader(
-      fixResponse([]byte("http/1.1 200 ok\r\ncontent-length: 13\r\n\r\nHello, world!")),
-    ),
-  )
-  _, err := http.ReadResponse(bufReader, nil)
-  if err != nil {
-    printer.Fatal(err, "Cannot read response from bytes")
-  }
-
-  client := &http.Client{
-    Transport: rqstr,
-  }
-  req, err := http.NewRequest("GET", "http://openplatform.website:8080", nil)
-  // req, err := http.NewRequest("GET", "http://google.com", nil)
-  if err != nil {
-    printer.Fatal(err)
-  }
-  req.Header.Add("If-None-Match", `W/"wyzzy"`)
-
-  foo := make(chan bool)
-  go func() {
-    resp, err := client.Do(req)
-    if err != nil {
-      printer.Fatal(err)
-    }
-    printer.Debug(resp)
-    foo <- true
-  }()
-  _ = <-foo
-}

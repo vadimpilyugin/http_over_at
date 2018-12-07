@@ -1,4 +1,4 @@
-package main
+package http_over_at
 
 import (
 	"github.com/jacobsa/go-serial/serial"
