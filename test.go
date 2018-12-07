@@ -407,11 +407,8 @@ func receiveCHTTPACT() error {
 		} else if resp.Name == CME && resp.Status == ERROR {
 			return errCHTTPACT(CME)
 		} else if resp.Name == CONNECT {
+			printer.Note("Got CONNECT, trying to fix...")
 			commands <- []byte(CTRL_Z)
-			resp = <-responses
-			if resp.Name != OK {
-				printer.Fatal(resp, "Fix: Not OK!")
-			}
 		} else {
 			printer.Debug("Skipping until HTTPACT is found")
 		}

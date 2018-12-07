@@ -107,15 +107,21 @@ func main() {
   client := &http.Client{
     Transport: rqstr,
   }
-  // req, err := http.NewRequest("GET", "http://openplatform.website:8080", nil)
-  req, err := http.NewRequest("GET", "http://google.com", nil)
+  req, err := http.NewRequest("GET", "http://openplatform.website:8080", nil)
+  // req, err := http.NewRequest("GET", "http://google.com", nil)
   if err != nil {
     printer.Fatal(err)
   }
   req.Header.Add("If-None-Match", `W/"wyzzy"`)
-  resp, err := client.Do(req)
-  if err != nil {
-    printer.Fatal(err)
-  }
-  printer.Debug(resp)
+
+  foo := make(chan bool)
+  go func() {
+    resp, err := client.Do(req)
+    if err != nil {
+      printer.Fatal(err)
+    }
+    printer.Debug(resp)
+    foo <- true
+  }()
+  _ = <-foo
 }
