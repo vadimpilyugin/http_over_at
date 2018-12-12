@@ -6,6 +6,8 @@ import (
   "net/http/httputil"
   "bufio"
   "bytes"
+  "strings"
+  "fmt"
 )
 
 type promise struct {
@@ -28,6 +30,17 @@ func init() {
   go Rqstr.dequeue()
 }
 
+func addContentLength(headers []byte, cl int64) []byte {
+  s := string(headers)
+  i := strings.Index(s, "\r\n\r\n")
+  if i == -1 {
+    printer.Fatal("HTTP ending sequence is not found!")
+  }
+  clHeader := fmt.Sprintf("Content-Length: %d\r\n", cl)
+  headers = append(headers[:i+2], []byte(clHeader)...)
+  headers = append(headers, []byte("\r\n")...)
+  return headers
+}
 
 func (Rqstr *Requester) dequeue () {
   const DEFAULT_PORT = "80"
@@ -35,6 +48,9 @@ func (Rqstr *Requester) dequeue () {
     headers, err := httputil.DumpRequest(promise.Request, false)
     if err != nil {
       printer.Fatal(err)
+    }
+    if promise.Request.Body != nil && promise.Request.ContentLength > 0 {
+      headers = addContentLength(headers, promise.Request.ContentLength)
     }
     port := promise.Request.URL.Port()
     if port == "" {
