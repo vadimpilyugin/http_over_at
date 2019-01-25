@@ -2,7 +2,7 @@ package http_over_at
 
 import (
   "net/http"
-  "github.com/vadimpilyugin/debug_print_go"
+  "debug_print_go"
   "net/http/httputil"
   "bufio"
   "bytes"

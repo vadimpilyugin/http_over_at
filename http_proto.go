@@ -1,8 +1,8 @@
 package http_over_at
 
 import (
-  "github.com/vadimpilyugin/debug_print_go"
-  "github.com/vadimpilyugin/at_commands"
+  "debug_print_go"
+  "at_commands"
   "io"
   "fmt"
   "errors"
