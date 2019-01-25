@@ -22,6 +22,7 @@ const (
 )
 
 func HTTPRequest(host string, port string, headers []byte, body io.Reader) ([]byte, error) {
+  at_commands.ConnectToPort()
   printer.Debug("New request", "HTTPRequest", map[string]string{
     "Host":host,
     "Port":port,
